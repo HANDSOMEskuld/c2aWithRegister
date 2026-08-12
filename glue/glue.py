@@ -86,28 +86,20 @@ def _pull_aar_accounts() -> list[dict[str, Any]]:
     return d.get("items") or d.get("accounts") or []
 
 
-def _c2a_available_count() -> int:
-    """统计 c2a 中可用(backend_status=正常)账号数。"""
+def _aar_valid_count() -> int:
+    """统计 aar 中真实可用(status=registered)的账号数。aar 才是真实状态源
+    （c2a 的 backend_status 是入库旧值不实时刷新，不可信）。"""
     try:
-        resp = httpx.get(
-            f"{C2A_BASE_URL}/api/accounts",
-            params={"page": 1, "page_size": 500},
-            headers={"Authorization": f"Bearer {C2A_AUTH_KEY}"},
-            timeout=30,
-        )
-        resp.raise_for_status()
-        d = resp.json()
-        items = d.get("items") or d.get("accounts") or []
-        n = 0
-        for it in items:
-            bs = str(it.get("backend_status") or "").strip()
-            sc = str(it.get("status_category") or "").strip().lower()
-            if bs == "正常" or sc == "normal" or sc == "active":
-                n += 1
-        return n
+        accounts = _pull_aar_accounts()
+        return sum(1 for a in accounts if (a.get("status") or "").strip().lower() == "registered")
     except Exception as e:
-        print(f"[glue] c2a available count failed: {e}")
+        print(f"[glue] aar valid count failed: {e}")
         return 0
+
+
+def _c2a_available_count() -> int:
+    """可用账号数 = aar 中真实 registered 的数量（以 aar 为权威）。"""
+    return _aar_valid_count()
 
 
 def _c2a_last_traffic_ts() -> float:
@@ -136,6 +128,53 @@ def _c2a_last_traffic_ts() -> float:
 
 
 # ---------------- 同步 ----------------
+def _cleanup_invalid() -> int:
+    """反向清理：aar 中已 invalid 或不存在的账号，从 c2a 删除（c2a 状态不实时，需以 aar 为准）。"""
+    try:
+        aar_accounts = _pull_aar_accounts()
+    except Exception as e:
+        print(f"[glue] cleanup pull aar failed: {e}")
+        return 0
+    valid_emails = { (a.get("email") or "").strip().lower()
+                     for a in aar_accounts if (a.get("status") or "").strip().lower() == "registered" }
+    # c2a 当前账号（拿 email -> id 映射）
+    try:
+        resp = httpx.get(
+            f"{C2A_BASE_URL}/api/accounts",
+            params={"page": 1, "page_size": 500},
+            headers={"Authorization": f"Bearer {C2A_AUTH_KEY}"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        c2a_items = resp.json().get("items") or resp.json().get("accounts") or []
+    except Exception as e:
+        print(f"[glue] cleanup pull c2a failed: {e}")
+        return 0
+    to_delete = []
+    for it in c2a_items:
+        em = (it.get("email") or "").strip().lower()
+        if em and em not in valid_emails:
+            aid = it.get("id") or it.get("account_id")
+            if aid:
+                to_delete.append(aid)
+    if not to_delete:
+        return 0
+    try:
+        del_resp = httpx.request(
+            "DELETE",
+            f"{C2A_BASE_URL}/api/accounts",
+            json={"account_ids": to_delete},
+            headers={"Authorization": f"Bearer {C2A_AUTH_KEY}"},
+            timeout=30,
+        )
+        del_resp.raise_for_status()
+        print(f"[glue] cleanup removed {len(to_delete)} invalid/stale account(s) from c2a")
+        return len(to_delete)
+    except Exception as e:
+        print(f"[glue] cleanup delete failed: {e}")
+        return 0
+
+
 def sync_once() -> int:
     try:
         accounts = _pull_aar_accounts()
@@ -164,6 +203,8 @@ def sync_once() -> int:
             with _synced_lock:
                 _synced.add(email)
             pushed += 1
+    # 反向清理：aar 已 invalid 的账号从 c2a 移除
+    _cleanup_invalid()
     return pushed
 
 
