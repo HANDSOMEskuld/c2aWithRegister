@@ -170,7 +170,7 @@ def sync_once() -> int:
 # ---------------- 自动注册 ----------------
 def _trigger_aar_register(count: int) -> dict[str, Any]:
     """调 aar 原版注册 API 注册 count 个账号。返回结果摘要。"""
-    extra: dict[str, Any] = {"chatgpt_registration_mode": "refresh_token"}
+    extra: dict[str, Any] = {"chatgpt_registration_mode": "access_token"}
     if AAR_REGISTER_MODE:
         extra["chatgpt_registration_mode"] = AAR_REGISTER_MODE
     payload = {
