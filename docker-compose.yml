@@ -1,4 +1,4 @@
-# 合并部署：chatgpt2api（反代消费端）+ any-auto-register（注册生产端）+ glue（接口胶水）
+# 合并部署：chatgpt2api（反代消费端）+ any-auto-register（注册生产端）+ glue（接口胶水）+ anytls 代理
 # 两项目原版代码均不修改，仅通过 glue 把 any-auto-register 注册产出的账号转发入库 chatgpt2api，
 # 并支持自动注册调度（c2a 可用账号不足时自动调 aar 注册）。
 #
@@ -9,6 +9,10 @@
 #
 # 流量感知：glue 轮询 c2a 自带日志 API (/api/logs) 判断最近 m 分钟是否有调用，
 #          不拦截/代理 c2a 流量（c2a 原生直连）。
+#
+# 代理（anytls-sidecar）：住宅/家宽代理，以 sidecar 形式与 aar 共享网络栈，
+#           aar 容器内访问 127.0.0.1:1080 即走该代理。aar 注册时从代理池取此代理，
+#           绕过 OpenAI 对数据中心 IP 的风控。代理参数经环境变量注入，不改任一项目源码。
 #
 # 数据流：
 #   any-auto-register(原版, :8000) 注册成功
@@ -57,6 +61,23 @@ services:
     depends_on:
       - glue
 
+  # anytls 住宅/家宽代理 sidecar：与 aar 共享网络栈，aar 内 127.0.0.1:1080 即代理
+  anytls-sidecar:
+    image: alpine:3.20
+    container_name: anytls-sidecar
+    network_mode: "service:any-auto-register"
+    volumes:
+      - /usr/local/bin/anytls-client:/usr/local/bin/anytls-client:ro
+    environment:
+      ANYTLS_SERVER: "${ANYTLS_SERVER:-ov2.5714c548.com:25130}"
+      ANYTLS_PASSWORD: "${ANYTLS_PASSWORD:-eb10c952-354c-4cf9-8488-a6d5c8c91a15}"
+      ANYTLS_SNI: "${ANYTLS_SNI:-ov2.5714c548.com}"
+      ANYTLS_LISTEN: "127.0.0.1:1080"
+    command: ["/bin/sh", "-c", "apk add --no-cache ca-certificates >/dev/null 2>&1; /usr/local/bin/anytls-client -l $$ANYTLS_LISTEN -s \"anytls://$$ANYTLS_PASSWORD@$$ANYTLS_SERVER\" -sni $$ANYTLS_SNI"]
+    restart: unless-stopped
+    depends_on:
+      - any-auto-register
+
   glue:
     build:
       context: ./glue
@@ -65,8 +86,8 @@ services:
       C2A_BASE_URL: "http://chatgpt2api:80"
       CHATGPT2API_AUTH_KEY: "${CHATGPT2API_AUTH_KEY:-test_key_123}"
       GLUE_TOKEN: "${GLUE_TOKEN:-glue-shared-secret}"
-      # 主动同步轮询间隔（秒）
-      SYNC_INTERVAL: "30"
+      # 主动同步轮询间隔（秒），调小可降低同步延时
+      SYNC_INTERVAL: "${SYNC_INTERVAL:-10}"
       # ===== 自动注册调度（默认关闭，按需开启）=====
       AUTO_REGISTER_ENABLED: "${AUTO_REGISTER_ENABLED:-false}"
       MIN_AVAILABLE: "${MIN_AVAILABLE:-3}"
