@@ -24,7 +24,7 @@
 services:
   chatgpt2api:
     build:
-      context: ../chatgpt2api
+      context: ./chatgpt2api
     container_name: c2a-app
     environment:
       CHATGPT2API_AUTH_KEY: "${CHATGPT2API_AUTH_KEY:-test_key_123}"
@@ -36,7 +36,7 @@ services:
 
   any-auto-register:
     build:
-      context: ../any-auto-register
+      context: ./any-auto-register
     container_name: aar-app
     entrypoint: ["/bin/sh", "-c"]
     command: ["ln -sf /runtime/account_manager.db /app/account_manager.db; Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp & sleep 3; DISPLAY=:99 exec python main.py"]
@@ -62,6 +62,7 @@ services:
       - glue
 
   # anytls 住宅/家宽代理 sidecar：与 aar 共享网络栈，aar 内 127.0.0.1:1080 即代理（单节点备用）
+  # 需自行填写 ANYTLS_SERVER / ANYTLS_PASSWORD / ANYTLS_SNI（不提供默认值，避免泄露）
   anytls-sidecar:
     image: alpine:3.20
     container_name: anytls-sidecar
@@ -69,9 +70,9 @@ services:
     volumes:
       - /usr/local/bin/anytls-client:/usr/local/bin/anytls-client:ro
     environment:
-      ANYTLS_SERVER: "${ANYTLS_SERVER:-ov2.5714c548.com:25130}"
-      ANYTLS_PASSWORD: "${ANYTLS_PASSWORD:-eb10c952-354c-4cf9-8488-a6d5c8c91a15}"
-      ANYTLS_SNI: "${ANYTLS_SNI:-ov2.5714c548.com}"
+      ANYTLS_SERVER: "${ANYTLS_SERVER:-}"
+      ANYTLS_PASSWORD: "${ANYTLS_PASSWORD:-}"
+      ANYTLS_SNI: "${ANYTLS_SNI:-}"
       ANYTLS_LISTEN: "127.0.0.1:1080"
     command: ["/bin/sh", "-c", "apk add --no-cache ca-certificates >/dev/null 2>&1; /usr/local/bin/anytls-client -l $$ANYTLS_LISTEN -s \"anytls://$$ANYTLS_PASSWORD@$$ANYTLS_SERVER\" -sni $$ANYTLS_SNI"]
     restart: unless-stopped
@@ -80,13 +81,16 @@ services:
 
   # mihomo (clash-meta) sidecar：加载远程订阅, 聚合全部节点做负载均衡, aar 内 127.0.0.1:1081 即代理
   # 订阅节点全部可用(自动轮换), 取代单节点 anytls 作为主代理
+  # 通过 MOHOMO_SUB_URL 注入你的 Clash 订阅链接（config.yaml 中的占位符会被替换）
   mihomo:
     image: metacubex/mihomo:latest
     container_name: mihomo
     network_mode: "service:any-auto-register"
+    environment:
+      MOHOMO_SUB_URL: "${MOHOMO_SUB_URL:-}"
     volumes:
       - ./mihomo/config.yaml:/root/.config/mihomo/config.yaml:ro
-    command: ["mihomo", "-d", "/root/.config/mihomo"]
+    command: ["/bin/sh", "-c", "if [ -n \"$$MOHOMO_SUB_URL\" ]; then sed -i \"s#SUBSCRIPTION_URL_PLACEHOLDER#$$MOHOMO_SUB_URL#g\" /root/.config/mihomo/config.yaml; fi; mihomo -d /root/.config/mihomo"]
     restart: unless-stopped
     depends_on:
       - any-auto-register

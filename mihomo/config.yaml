@@ -1,91 +1,32 @@
+# mihomo (clash-meta) 配置：加载远程 Clash 订阅，聚合全部节点做负载均衡
+# aar 容器内访问 127.0.0.1:1081 即走订阅里所有节点（自动轮换），绕过 OpenAI 数据中心 IP 风控
+#
+# 使用：把下面 SUBSCRIPTION_URL 替换成你的 Clash 订阅链接（含 &clash=3&extend=1 等参数）
+# 或通过环境变量 MOHOMO_SUB_URL 注入（见 docker-compose.yml 的 mihomo entrypoint）
 mixed-port: 1081
 allow-lan: true
 mode: rule
 log-level: info
-proxies:
-- name: 🇯🇵 免费-日本1-Ver.7
-  server: ovhfzym-g04.jp01-nn-vm0.entry.fr0528.art
-  port: 21584
-  type: vmess
-  uuid: f38fe9d0-3ab5-32cc-9082-b9cb5ba99443
-  alterId: 1
-  cipher: auto
-  tls: true
-  skip-cert-verify: false
-  udp: true
-- name: 🇯🇵 免费-日本2-Ver.8
-  server: a0hw4y1-g04.jp02-e3-vm0.entry.fr0528.art
-  port: 11776
-  type: vmess
-  uuid: f38fe9d0-3ab5-32cc-9082-b9cb5ba99443
-  alterId: 1
-  cipher: auto
-  tls: false
-  skip-cert-verify: false
-  udp: true
-- name: 🇯🇵 免费-日本3-Ver.7
-  server: i0oz4tc-g04.jp03-j7-vm0.entry.fr0528.art
-  port: 21584
-  type: vmess
-  uuid: f38fe9d0-3ab5-32cc-9082-b9cb5ba99443
-  alterId: 1
-  cipher: auto
-  tls: true
-  skip-cert-verify: false
-  udp: true
-- name: 🇯🇵 免费-日本4-Ver.8
-  server: aoozvym-g04.jp04-1d-vm0.entry.fr0528.art
-  port: 447
-  type: vmess
-  uuid: f38fe9d0-3ab5-32cc-9082-b9cb5ba99443
-  alterId: 1
-  cipher: auto
-  tls: false
-  skip-cert-verify: false
-  udp: true
-- name: 🇯🇵 免费-日本5-Ver.9
-  server: iohzzuy-g04.jp05-h6-vm0.entry.fr0528.art
-  port: 46485
-  type: vmess
-  uuid: f38fe9d0-3ab5-32cc-9082-b9cb5ba99443
-  alterId: 1
-  cipher: auto
-  tls: false
-  skip-cert-verify: false
-  udp: true
-- name: 🇯🇵 免费-日本6-Ver.8
-  server: i1ow4tm-g04.jp06-jz-vm0.entry.fr0528.art
-  port: 28786
-  type: vmess
-  uuid: f38fe9d0-3ab5-32cc-9082-b9cb5ba99443
-  alterId: 1
-  cipher: auto
-  tls: true
-  skip-cert-verify: false
-  udp: true
-- name: 🇯🇵 免费-日本7-Ver.2
-  server: hvhzvyy-g04.jp07-sh-vm0.entry.fr0528.art
-  port: 28786
-  type: vmess
-  uuid: f38fe9d0-3ab5-32cc-9082-b9cb5ba99443
-  alterId: 1
-  cipher: auto
-  tls: false
-  skip-cert-verify: false
-  udp: true
+
+proxy-providers:
+  sub:
+    type: http
+    url: "SUBSCRIPTION_URL_PLACEHOLDER"
+    interval: 3600
+    path: ./sub.yaml
+    health-check:
+      enable: true
+      interval: 300
+      url: https://www.gstatic.com/generate_204
+
 proxy-groups:
-- name: LB
-  type: load-balance
-  url: https://www.gstatic.com/generate_204
-  interval: 300
-  strategy: round-robin
-  proxies:
-  - 🇯🇵 免费-日本1-Ver.7
-  - 🇯🇵 免费-日本2-Ver.8
-  - 🇯🇵 免费-日本3-Ver.7
-  - 🇯🇵 免费-日本4-Ver.8
-  - 🇯🇵 免费-日本5-Ver.9
-  - 🇯🇵 免费-日本6-Ver.8
-  - 🇯🇵 免费-日本7-Ver.2
+  - name: LB
+    type: load-balance
+    url: https://www.gstatic.com/generate_204
+    interval: 300
+    strategy: round-robin
+    proxies:
+      - sub
+
 rules:
-- MATCH,LB
+  - MATCH,LB

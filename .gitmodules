@@ -1,0 +1,6 @@
+[submodule "chatgpt2api"]
+	path = chatgpt2api
+	url = https://github.com/yukkcat/chatgpt2api.git
+[submodule "any-auto-register"]
+	path = any-auto-register
+	url = https://github.com/zc-zhangchen/any-auto-register.git
