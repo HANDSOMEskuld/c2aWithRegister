@@ -88,12 +88,12 @@ services:
       GLUE_TOKEN: "${GLUE_TOKEN:-glue-shared-secret}"
       # 主动同步轮询间隔（秒），调小可降低同步延时
       SYNC_INTERVAL: "${SYNC_INTERVAL:-10}"
-      # ===== 自动注册调度（默认关闭，按需开启）=====
-      AUTO_REGISTER_ENABLED: "${AUTO_REGISTER_ENABLED:-false}"
-      MIN_AVAILABLE: "${MIN_AVAILABLE:-3}"
-      REGISTER_BATCH: "${REGISTER_BATCH:-1}"
-      ONLY_ON_TRAFFIC: "${ONLY_ON_TRAFFIC:-false}"
-      TRAFFIC_WINDOW_MIN: "${TRAFFIC_WINDOW_MIN:-10}"
+      # ===== 自动注册调度（常开：账号池低于阈值自动补货，依赖 aar 代理池中的住宅代理）=====
+      AUTO_REGISTER_ENABLED: "${AUTO_REGISTER_ENABLED:-true}"
+      MIN_AVAILABLE: "${MIN_AVAILABLE:-5}"
+      REGISTER_BATCH: "${REGISTER_BATCH:-2}"
+      ONLY_ON_TRAFFIC: "${ONLY_ON_TRAFFIC:-true}"
+      TRAFFIC_WINDOW_MIN: "${TRAFFIC_WINDOW_MIN:-15}"
       CHECK_INTERVAL: "${CHECK_INTERVAL:-60}"
       AAR_REGISTER_CONCURRENCY: "${AAR_REGISTER_CONCURRENCY:-1}"
       # AAR_REGISTER_MODE: ""  # 空=用 aar 全局配置；可填 refresh_token / access_token 等
