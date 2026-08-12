@@ -1,0 +1,69 @@
+# 合并部署：chatgpt2api（反代消费端）+ any-auto-register（注册生产端）+ glue（接口胶水）
+# 两项目原版代码均不修改，仅通过 glue 把 any-auto-register 注册产出的账号转发入库 chatgpt2api。
+#
+# 数据流：
+#   any-auto-register(原版, :8000) 注册成功
+#     → 自动 POST http://glue:8080/api/upload  (contribution_mode=custom 钩子)
+#     → glue(原版无关, :8080) 转换格式
+#     → POST http://chatgpt2api:80/api/accounts  (带管理密钥)
+#     → chatgpt2api(原版, :80) 账号池
+#     → 立即可被 /v1 反代消费
+
+services:
+  chatgpt2api:
+    build:
+      context: ../chatgpt2api
+    container_name: c2a-app
+    environment:
+      CHATGPT2API_AUTH_KEY: "${CHATGPT2API_AUTH_KEY:-test_key_123}"
+    volumes:
+      - c2a_data:/app/data
+    ports:
+      - "3080:80"
+    restart: unless-stopped
+
+  any-auto-register:
+    build:
+      context: ../any-auto-register
+    container_name: aar-app
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ln -sf /runtime/account_manager.db /app/account_manager.db; Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp & sleep 3; DISPLAY=:99 exec python main.py"]
+    environment:
+      # 复用 any-auto-register 原版内置的 contribution_mode=custom 钩子，不改其源码
+      CONTRIBUTION_ENABLED: "1"
+      CONTRIBUTION_MODE: "custom"
+      CUSTOM_CONTRIBUTION_URL: "http://glue:8080/api/upload"
+      CUSTOM_CONTRIBUTION_TOKEN: "${GLUE_TOKEN:-glue-shared-secret}"
+      # 以下按你实际环境填写（注册需要能访问 ChatGPT 与邮箱服务）
+      # CHATGPT_REGISTRATION_MODE: "refresh_token"
+      # MAIL_PROVIDER: "cfworker"
+      # CFWORKER_API_URL: ""
+      # CFWORKER_ADMIN_TOKEN: ""
+      # CFWORKER_DOMAIN: ""
+    volumes:
+      - aar_runtime:/runtime
+      - aar_camoufox:/root/.cache
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    depends_on:
+      - glue
+
+  glue:
+    build:
+      context: ./glue
+    container_name: glue-app
+    environment:
+      C2A_BASE_URL: "http://chatgpt2api:80"
+      CHATGPT2API_AUTH_KEY: "${CHATGPT2API_AUTH_KEY:-test_key_123}"
+      GLUE_TOKEN: "${GLUE_TOKEN:-glue-shared-secret}"
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    depends_on:
+      - chatgpt2api
+
+volumes:
+  c2a_data:
+  aar_runtime:
+  aar_camoufox:
