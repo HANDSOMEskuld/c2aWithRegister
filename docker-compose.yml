@@ -61,7 +61,7 @@ services:
     depends_on:
       - glue
 
-  # anytls 住宅/家宽代理 sidecar：与 aar 共享网络栈，aar 内 127.0.0.1:1080 即代理
+  # anytls 住宅/家宽代理 sidecar：与 aar 共享网络栈，aar 内 127.0.0.1:1080 即代理（单节点备用）
   anytls-sidecar:
     image: alpine:3.20
     container_name: anytls-sidecar
@@ -74,6 +74,19 @@ services:
       ANYTLS_SNI: "${ANYTLS_SNI:-ov2.5714c548.com}"
       ANYTLS_LISTEN: "127.0.0.1:1080"
     command: ["/bin/sh", "-c", "apk add --no-cache ca-certificates >/dev/null 2>&1; /usr/local/bin/anytls-client -l $$ANYTLS_LISTEN -s \"anytls://$$ANYTLS_PASSWORD@$$ANYTLS_SERVER\" -sni $$ANYTLS_SNI"]
+    restart: unless-stopped
+    depends_on:
+      - any-auto-register
+
+  # mihomo (clash-meta) sidecar：加载远程订阅, 聚合全部节点做负载均衡, aar 内 127.0.0.1:1081 即代理
+  # 订阅节点全部可用(自动轮换), 取代单节点 anytls 作为主代理
+  mihomo:
+    image: metacubex/mihomo:latest
+    container_name: mihomo
+    network_mode: "service:any-auto-register"
+    volumes:
+      - ./mihomo/config.yaml:/root/.config/mihomo/config.yaml:ro
+    command: ["mihomo", "-d", "/root/.config/mihomo"]
     restart: unless-stopped
     depends_on:
       - any-auto-register
