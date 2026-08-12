@@ -1,13 +1,21 @@
 # 合并部署：chatgpt2api（反代消费端）+ any-auto-register（注册生产端）+ glue（接口胶水）
-# 两项目原版代码均不修改，仅通过 glue 把 any-auto-register 注册产出的账号转发入库 chatgpt2api。
+# 两项目原版代码均不修改，仅通过 glue 把 any-auto-register 注册产出的账号转发入库 chatgpt2api，
+# 并支持自动注册调度（c2a 可用账号不足时自动调 aar 注册）。
+#
+# 访问入口（宿主机）：
+#   3080 → chatgpt2api(原版, :80)   普通 chatgpt2api 使用，原生直连（glue 不挡在前面）
+#   8000 → any-auto-register(原版控制台)  注册端
+#   8080 → glue 管理 API（/healthz /sync-now /auto-register/*）
+#
+# 流量感知：glue 轮询 c2a 自带日志 API (/api/logs) 判断最近 m 分钟是否有调用，
+#          不拦截/代理 c2a 流量（c2a 原生直连）。
 #
 # 数据流：
 #   any-auto-register(原版, :8000) 注册成功
-#     → 自动 POST http://glue:8080/api/upload  (contribution_mode=custom 钩子)
-#     → glue(原版无关, :8080) 转换格式
-#     → POST http://chatgpt2api:80/api/accounts  (带管理密钥)
-#     → chatgpt2api(原版, :80) 账号池
-#     → 立即可被 /v1 反代消费
+#     → glue 主动轮询同步（兜底 AT 模式 refresh_token 为空的情况）
+#     → POST http://chatgpt2api:80/api/accounts
+#     → chatgpt2api(原版, :80) 账号池 → 立即可被 /v1 反代消费
+#   自动注册：glue 后台检查 c2a 可用账号数，低于 MIN_AVAILABLE 时调 aar /api/tasks/register
 
 services:
   chatgpt2api:
@@ -57,6 +65,17 @@ services:
       C2A_BASE_URL: "http://chatgpt2api:80"
       CHATGPT2API_AUTH_KEY: "${CHATGPT2API_AUTH_KEY:-test_key_123}"
       GLUE_TOKEN: "${GLUE_TOKEN:-glue-shared-secret}"
+      # 主动同步轮询间隔（秒）
+      SYNC_INTERVAL: "30"
+      # ===== 自动注册调度（默认关闭，按需开启）=====
+      AUTO_REGISTER_ENABLED: "${AUTO_REGISTER_ENABLED:-false}"
+      MIN_AVAILABLE: "${MIN_AVAILABLE:-3}"
+      REGISTER_BATCH: "${REGISTER_BATCH:-1}"
+      ONLY_ON_TRAFFIC: "${ONLY_ON_TRAFFIC:-false}"
+      TRAFFIC_WINDOW_MIN: "${TRAFFIC_WINDOW_MIN:-10}"
+      CHECK_INTERVAL: "${CHECK_INTERVAL:-60}"
+      AAR_REGISTER_CONCURRENCY: "${AAR_REGISTER_CONCURRENCY:-1}"
+      # AAR_REGISTER_MODE: ""  # 空=用 aar 全局配置；可填 refresh_token / access_token 等
     ports:
       - "8080:8080"
     restart: unless-stopped
